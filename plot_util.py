@@ -236,7 +236,7 @@ def plot_total_layers(total_helped, names, shapes, plot_dest=None):
     plt.ylabel('LCA per layer')
     save_or_show(plot_dest)
 
-def percent_helped_histograms(helped):
+def percent_helped_histograms(helped, plot_dest=None):
     # histogram of how many params helped, over each iteration
     negatives = helped < 0
     params_per_iter = negatives.sum(axis=1)
@@ -254,7 +254,7 @@ def percent_helped_histograms(helped):
     plt.xlabel('iterations helped per param')
     plt.ylabel('number of params')
     plt.title('Mean = {:.2f}, stdev = {:.2f}'.format(iters_per_param.mean(), iters_per_param.std()))
-    plt.show()
+    save_or_show(plot_dest)
 
 # helped train and test trajectories (cumulative) for each layer
 def plot_trajectory_per_layer(helped, names, shapes, helped_test=None, layer_inds=[], iters=-1, plot_dest=None):
