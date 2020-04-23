@@ -40,7 +40,7 @@ def get_groundtruth(city_dirs):
     gt = {}
     for city_dir in city_dirs:
         summary_dir = os.path.join(city_dir, 'summaryData')
-        path_to_csv = os.path.join(summary_dir, city_dir.split("\\")[-1] + ".csv")
+        path_to_csv = os.path.join(summary_dir, city_dir.split(os.path.sep)[-1] + ".csv")
         print("Processing CSV: " + path_to_csv)
 
         # matrix = pd.read_csv(path_to_csv).as_matrix()
@@ -105,17 +105,14 @@ class MULSpacenetDataset(Iterator):
             city, id = self.image_ids[image_index]
 
             for data_dir in self.data_dirs:
-                city_dir_name = data_dir.split("/")[-1]
+                city_dir_name = data_dir.split(os.path.sep)[-1]
                 if city in data_dir:
                     img_name = self.image_name_template.format(id=id)
                     if self.clahe:
-                        #data_dir = os.path.join(self.wdata_dir, city_dir_name)
-                        #path = os.path.join(data_dir, img_name)
-                        data_dir = self.wdata_dir + '/' + city_dir_name
-                        path = data_dir + '/' + img_name
+                        data_dir = os.path.join(self.wdata_dir, city_dir_name)
+                        path = os.path.join(data_dir, img_name)
                     else:
-                        #path = os.path.join(data_dir, img_name)
-                        path = data_dir + '/' + img_name
+                        path = os.path.join(data_dir, img_name)
                     break
 
             arr = tifffile.imread(path)
