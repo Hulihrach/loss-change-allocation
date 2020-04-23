@@ -296,8 +296,8 @@ def train_and_eval(sess, model, train_y_shape, train_generator, val_generator, t
             # print status update
             if iterations % args.print_every == 0:
                 print(('{}: train acc = {:.4f}, test acc = {:.4f}, '
-                    + 'train loss = {:.4f}, test loss = {:.4f} ({:.2f} s)').format(iterations,
-                    cur_train_acc, cur_test_acc, cur_train_loss, cur_test_loss, time.time() - timerstart))
+                    + 'train loss = {:.4f}, test loss = {:.4f}, lr = {:.4f} ({:.2f} s)').format(iterations,
+                    cur_train_acc, cur_test_acc, cur_train_loss, cur_test_loss, curr_lr, time.time() - timerstart))
 
             # current slice for input data
             # batch_indices = shuffled_indices[args.train_batch_size * i : args.train_batch_size * (i + 1)]

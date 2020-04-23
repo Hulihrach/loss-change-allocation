@@ -40,7 +40,6 @@ def get_groundtruth(city_dirs):
     gt = {}
     for city_dir in city_dirs:
         summary_dir = os.path.join(city_dir, 'summaryData')
-        print(f'Summary dir: {summary_dir}; {city_dir.split(os.path.sep)[-1]}')
         path_to_csv = os.path.join(summary_dir, city_dir.split(os.path.sep)[-1] + ".csv")
         print("Processing CSV: " + path_to_csv)
 
