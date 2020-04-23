@@ -21,12 +21,14 @@ class Lambda(BaseLayer):
         return self._fn(inputs)
 
 class Activation(BaseLayer):
-    def __init__(self, activation):
-        super(Activation, self).__init__()
+    def __init__(self, activation, name=None):
+        super(Activation, self).__init__(name=name)
         if activation == 'relu':
             self._activation = tf.nn.relu
         elif activation == 'softmax':
             self._activation = tf.nn.softmax
+        elif activation == 'sigmoid':
+            self._activation = tf.nn.sigmoid
         else:
             raise Exception('{} activation not supported'.format(activation))
 

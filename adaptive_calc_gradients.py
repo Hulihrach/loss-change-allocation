@@ -21,6 +21,8 @@ import os
 from ast import literal_eval
 from multiprocessing.pool import ThreadPool
 
+from sklearn.model_selection._split import KFold
+
 import network_builders
 from tf_plus import BatchNormalization, Lambda, Dropout
 from tf_plus import Conv2D, MaxPooling2D, Flatten, Dense, he_normal, relu, Activation
@@ -30,13 +32,15 @@ from tf_nets.losses import add_classification_losses
 from brook.tfutil import hist_summaries_train, get_collection_intersection, get_collection_intersection_summary, log_scalars, sess_run_dict
 from brook.tfutil import summarize_weights, summarize_opt, tf_assert_all_init, tf_get_uninitialized_variables, add_grad_summaries
 
+from spacenet import *
+
 def make_parser():
     parser = argparse.ArgumentParser()
     # args that should be the same as train.py:
     parser.add_argument('--train_h5', type=str, required=True)
     parser.add_argument('--test_h5', type=str, required=True)
     parser.add_argument('--input_dim', type=str, default='28,28,1', help='mnist: 28,28,1; cifar: 32,32,3')
-    parser.add_argument('--arch', type=str, default='fc', choices=('fc', 'fc_cust', 'lenet', 'allcnn', 'resnet', 'vgg'), help='network architecture')
+    parser.add_argument('--arch', type=str, default='fc', choices=('densenet', 'fc', 'fc_cust', 'lenet', 'allcnn', 'resnet', 'vgg'), help='network architecture')
     parser.add_argument('--num_layers', type=int, default=3, help='number of layers for cifar fc')
     parser.add_argument('--opt', type=str, default='sgd', choices=('sgd', 'rmsprop', 'adam'))
     parser.add_argument('--l2', type=float, default=0)
@@ -58,6 +62,11 @@ def make_parser():
     parser.add_argument('--weights_h5', type=str, required=True)
     parser.add_argument('--output_h5', type=str, default=None, help='default = resname/gradients_adaptive')
     parser.add_argument('--stream_inputs', action='store_true', help='read in weights bit by bit')
+
+    # SpaceNet
+    parser.add_argument('--data_dirs', nargs='+')
+    parser.add_argument('--wdata_dir', type=str)
+    parser.add_argument('--crop_size', type=int)
     return parser
 
 def read_input_data(filename):
@@ -71,8 +80,8 @@ def read_input_data(filename):
 
 def init_model(model, args):
     img_size = tuple([None] + [int(dim) for dim in args.input_dim.split(',')])
-    input_images = tf.placeholder(dtype='float32', shape=img_size)
-    input_labels = tf.placeholder(dtype='int64', shape=(None,))
+    input_images = tf.placeholder(dtype='float32', shape=(None, args.crop_size, args.crop_size, 12))
+    input_labels = tf.placeholder(dtype='int64', shape=(None, args.crop_size, args.crop_size, 1))
     model.a('input_images', input_images)
     model.a('input_labels', input_labels)
     model.a('logits', model(input_images)) # logits is y_pred
@@ -98,6 +107,7 @@ def define_training(model, args):
     # gradients
     grads_and_vars = optimizer.compute_gradients(
         model.loss_cross_ent, model.trainable_weights, model.optimizer.GATE_GRAPH) # change if you want to include l2 loss
+        # model.sigm_crossentropy, model.trainable_weights, model.optimizer.GATE_GRAPH) # change if you want to include l2 loss
     model.a('grads_to_compute', [grad for grad, _ in grads_and_vars])
 
     # print('All model weights:')
@@ -119,9 +129,10 @@ def split_and_shape(one_time_slice, shapes):
         offset += num_params
     return variables
 
-def get_gradients_and_eval(sess, model, input_x, input_y, dim_sum, batch_size, get_eval=True, get_grads=True):
+def get_gradients_and_eval(sess, model, y_shape, generator, dim_sum, batch_size, get_eval=True, get_grads=True):
     grad_sums = np.zeros(dim_sum)
-    num_batches = int(input_y.shape[0] / batch_size)
+    # num_batches = int(y_shape[0] / batch_size)
+    num_batches = 18
     total_acc = 0
     total_loss = 0
     total_loss_no_reg = 0 # loss without counting l2 penalty
@@ -136,12 +147,13 @@ def get_gradients_and_eval(sess, model, input_x, input_y, dim_sum, batch_size, g
             # fetch_dict['accuracy'] = model.accuracy
             # fetch_dict['loss'] = model.loss
             fetch_dict['loss_no_reg'] = model.loss_cross_ent
+            # fetch_dict['loss_no_reg'] = model.sigm_crossentropy
         if get_grads:
             fetch_dict['gradients'] = model.grads_to_compute
 
         result_dict = sess_run_dict(sess, fetch_dict, feed_dict={
-            model.input_images: input_x[s_start:s_end],
-            model.input_labels: input_y[s_start:s_end],
+            model.input_images: generator[i][0],
+            model.input_labels: generator[i][1],
             learning_phase(): 0,
             batchnorm_learning_phase(): 1})
 
@@ -163,18 +175,19 @@ def get_gradients_and_eval(sess, model, input_x, input_y, dim_sum, batch_size, g
 #################
 
 # loads weights, calculates train and test gradients, writes to file at given iteration
-def load_and_calculate(sess, model, weight_values, input_data, dim_sum, args, get_eval=True):
-    train_x, train_y, test_x, test_y = input_data
+# def load_and_calculate(sess, model, weight_values, input_data, dim_sum, args, get_eval=True):
+def load_and_calculate(sess, model, weight_values, train_y_shape, train_generator, val_generator, dim_sum, args, get_eval=True):
+    # train_x, train_y, test_x, test_y = input_data
     # load weights into model
     for i, w in enumerate(model.trainable_weights):
         w.load(weight_values[i], session=sess)
 
     # train set
-    cur_train_grads, cur_train_loss = get_gradients_and_eval(sess, model, train_x, train_y,
+    cur_train_grads, cur_train_loss = get_gradients_and_eval(sess, model, train_y_shape, train_generator,
         dim_sum, args.large_batch_size, get_eval, True)
 
     # test set
-    cur_test_grads, cur_test_loss = get_gradients_and_eval(sess, model, test_x, test_y,
+    cur_test_grads, cur_test_loss = get_gradients_and_eval(sess, model, train_y_shape, val_generator,
         dim_sum, args.test_batch_size, get_eval, True)
 
     return cur_train_grads, cur_train_loss, cur_test_grads, cur_test_loss
@@ -188,14 +201,17 @@ Every iteration, calculate and save gradients with these steps:
     4. Save dynamically sized chunk to file (future work: write in batches if this needs to be sped up)
     5. Also save number of gradients used
 '''
-def run_thread(gpu, iters_to_calc, all_weights, shapes, input_data, dim_sum, args, dsets, hf_grads):
+# def run_thread(gpu, iters_to_calc, all_weights, shapes, input_data, dim_sum, args, dsets, hf_grads):
+def run_thread(gpu, iters_to_calc, all_weights, shapes, train_y_shape, train_generator, val_generator, dim_sum, args, dsets, hf_grads):
     # each process writes to a different variable in the file
     grads_train_key = 'grads_train_{}'.format(gpu)
     grads_test_key = 'grads_test_{}'.format(gpu)
 
     # build model for this process/device
     with tf.device('/device:GPU:{}'.format(gpu)):
-        if args.arch == 'fc':
+        if args.arch == 'densenet':
+            model = network_builders.build_densenet(args)
+        elif args.arch == 'fc':
             model = network_builders.build_network_fc(args)
         elif args.arch == 'fc_cust':
             model = network_builders.build_fc_adjustable(args)
@@ -221,7 +237,7 @@ def run_thread(gpu, iters_to_calc, all_weights, shapes, input_data, dim_sum, arg
     # get 0th iteration
     cur_weights_flat = all_weights[iters_to_calc[0]]
     (grads_train[0], cur_train_loss, grads_test[0], cur_test_loss) = load_and_calculate(
-        sess, model, split_and_shape(cur_weights_flat, shapes), input_data, dim_sum, args)
+        sess, model, split_and_shape(cur_weights_flat, shapes), train_y_shape, train_generator, val_generator, dim_sum, args)
     dsets['trainloss'][iters_to_calc[0]] = cur_train_loss
     dsets['testloss'][iters_to_calc[0]] = cur_test_loss
     dsets[grads_train_key][0] = grads_train[0]
@@ -232,11 +248,11 @@ def run_thread(gpu, iters_to_calc, all_weights, shapes, input_data, dim_sum, arg
         # get next iteration gradients and loss, so we have a ground truth loss
         next_weights_flat = all_weights[iterations + 1]
         (grads_train[-1], next_train_loss, grads_test[-1], next_test_loss) = load_and_calculate(
-            sess, model, split_and_shape(next_weights_flat, shapes), input_data, dim_sum, args)
+            sess, model, split_and_shape(next_weights_flat, shapes), train_y_shape, train_generator, val_generator, dim_sum, args)
 
         # get the middle fractional iterations
         get_fractional_gradients(range(1, args.default_num_splits), args.default_num_splits, cur_weights_flat,
-            next_weights_flat, grads_train, grads_test, input_data, shapes, sess, model, dim_sum, args) #1, or 1,2,3
+            next_weights_flat, grads_train, grads_test, train_y_shape, train_generator, val_generator, shapes, sess, model, dim_sum, args) #1, or 1,2,3
 
         # tuple of (train loss diff, test loss diff)
         approx_errors = (calc_approx_error(cur_train_loss, next_train_loss, grads_train, next_weights_flat - cur_weights_flat),
@@ -254,7 +270,7 @@ def run_thread(gpu, iters_to_calc, all_weights, shapes, input_data, dim_sum, arg
 
             # get quarter gradients, fill in the rest of grads_train_halved
             get_fractional_gradients(range(1, num_splits, 2), num_splits, cur_weights_flat, next_weights_flat,
-                grads_train_halved , grads_test_halved, input_data, shapes, sess, model, dim_sum, args) # 1,3 or 1,3,5,7
+                grads_train_halved , grads_test_halved, train_y_shape, train_generator, val_generator, shapes, sess, model, dim_sum, args) # 1,3 or 1,3,5,7
             grads_train = grads_train_halved
             grads_test = grads_test_halved
             approx_errors = (calc_approx_error(cur_train_loss, next_train_loss, grads_train, next_weights_flat - cur_weights_flat),
@@ -297,7 +313,8 @@ def calc_approx_error(cur_loss, next_loss, gradients, weight_deltas):
 # given weights at iterations (i, i+1), number of splits, and which fractions in between,
 # calculate and store those gradients
 def get_fractional_gradients(fractions, num_splits, cur_weights_flat, next_weights_flat,
-                             grads_train, grads_test, input_data, shapes, sess, model, dim_sum, args):
+                             # grads_train, grads_test, input_data, shapes, sess, model, dim_sum, args):
+                             grads_train, grads_test, y_shape, train_generator, val_generator, shapes, sess, model, dim_sum, args):
     # fractions should start at 1, not 0
     for frac in fractions:
         next_frac = frac / num_splits
@@ -306,7 +323,7 @@ def get_fractional_gradients(fractions, num_splits, cur_weights_flat, next_weigh
         partway_weights = split_and_shape(prev_frac * cur_weights_flat + next_frac * next_weights_flat, shapes)
 
         (grads_train[frac], _, grads_test[frac], _) = load_and_calculate(
-            sess, model, partway_weights, input_data, dim_sum, args, get_eval=False)
+            sess, model, partway_weights, y_shape, train_generator, val_generator, dim_sum, args, get_eval=False)
 
 # divide evenly except last range gets any remainders
 def divide_with_remainder(num_iters, num_gpus):
@@ -326,6 +343,41 @@ def main():
     # load data
     train_x, train_y = read_input_data(args.train_h5)
     test_x, test_y = read_input_data(args.test_h5) # used as val for now
+
+    # SpaceNet
+    all_ids = np.array(generate_ids(args.data_dirs, None))
+    kfold = KFold(n_splits=2, shuffle=True)  # args.n_folds
+    splits = [s for s in kfold.split(all_ids)]
+    folds = [int(f) for f in '0'.split(",")]
+    fold = folds[0]
+    train_ind, test_ind = splits[fold]
+    train_ids = all_ids[train_ind]
+    val_ids = all_ids[test_ind]
+
+    train_generator = MULSpacenetDataset(
+        data_dirs=args.data_dirs,
+        wdata_dir=args.wdata_dir,
+        image_ids=train_ids,
+        crop_shape=(args.crop_size, args.crop_size),
+        seed=777,
+        image_name_template='PS-MS/SN3_roads_train_AOI_5_Khartoum_PS-MS_{id}.tif',
+        masks_dict=get_groundtruth(args.data_dirs)
+    )
+
+    val_generator = MULSpacenetDataset(
+        data_dirs=args.data_dirs,
+        wdata_dir=args.wdata_dir,
+        image_ids=val_ids,
+        batch_size=1,
+        crop_shape=(args.crop_size, args.crop_size),
+        seed=777,
+        image_name_template='PS-MS/SN3_roads_train_AOI_5_Khartoum_PS-MS_{id}.tif',
+        masks_dict=get_groundtruth(args.data_dirs),
+    )
+
+    # x in shape (channels, width, height, num_images) ?
+    x, y = next(train_generator)
+    train_y_shape = y.shape
 
     images_scale = np.max(train_x)
     if images_scale > 1:
@@ -389,7 +441,7 @@ def main():
                     args, dsets, hf_grads))
             results.append(ret)
         else:
-            run_thread(gpu, iters_to_calc[gpu], all_weights, shapes, input_data, dim_sum,
+            run_thread(gpu, iters_to_calc[gpu], all_weights, shapes, train_y_shape, train_generator, val_generator, dim_sum,
                 args, dsets, hf_grads)
 
     pool.close()

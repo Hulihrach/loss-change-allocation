@@ -25,6 +25,7 @@ from .wrappers import DimDistributed, Distributed01, Distributed012, TimeDistrib
 # Make some common stuff from TF available for easy import
 import tensorflow as tf
 Conv2D = tf.layers.Conv2D
+Conv2DTranspose = tf.layers.Conv2DTranspose
 MaxPooling2D = tf.layers.MaxPooling2D
 Flatten = tf.layers.Flatten
 Dense = tf.layers.Dense

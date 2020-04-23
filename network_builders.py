@@ -18,6 +18,8 @@ from tf_plus import Layers, SequentialNetwork, l2reg, PreprocessingLayers
 
 # use tensorflow's version of keras, or else get version incompatibility errors
 from tensorflow.python import keras as tfkeras
+import tensorflow as tf
+from network_blocks import *
 
 '''
 Methods to set up network architectures
@@ -172,14 +174,25 @@ def build_resnet(args):
         ResidualBlock(3, 32, first_stride=(2, 2), name_prefix='2A_', identity=False, resize=args.resize_less, l2=args.l2, l2_shortcut=args.l2),
         ResidualBlock(3, 32, first_stride=(1, 1), name_prefix='2B_', identity=True, resize=args.resize_less, l2=args.l2, l2_shortcut=args.l2),
         ResidualBlock(3, 32, first_stride=(1, 1), name_prefix='2C_', identity=True, resize=args.resize_less, l2=args.l2, l2_shortcut=args.l2),
+
+        tf.layers.Conv2DTranspose(1, 15, padding='valid'),
         # set 3
         ResidualBlock(3, 64, first_stride=(2, 2), name_prefix='3A_', identity=False, resize=args.resize_less, l2=args.l2, l2_shortcut=args.l2),
         ResidualBlock(3, 64, first_stride=(1, 1), name_prefix='3B_', identity=True, resize=args.resize_more, l2=args.l2, l2_shortcut=args.l2),
         ResidualBlock(3, 64, first_stride=(1, 1), name_prefix='3C_', identity=True, resize=args.resize_more, l2=args.l2, l2_shortcut=args.l2),
         # post-blocks
-        GlobalAveragePooling2D(),
-        Dense(10, kernel_initializer=he_normal, activation=None, kernel_regularizer=l2reg(args.l2_special), name='fc_last')
+        # GlobalAveragePooling2D(),
+        tf.layers.Conv2DTranspose(1, 3, padding='valid'),
+        tf.layers.Conv2DTranspose(1, 9, padding='valid'),
+        tf.layers.Conv2DTranspose(1, 15, padding='valid'),
+        tf.layers.Conv2DTranspose(1, 21, padding='valid'),
+        tf.layers.Conv2DTranspose(1, 42, padding='valid', name='mask'),
+        Activation('sigmoid')
+        # Dense(10, kernel_initializer=he_normal, activation=None, kernel_regularizer=l2reg(args.l2_special), name='fc_last')
     ])
+
+def build_linknet():
+    return LinkNet()
 
 # blocks used as part of a SequentialNetwork
 class ResidualBlock(Layers):
@@ -212,3 +225,53 @@ class ResidualBlock(Layers):
         else:
             reshaped_input = self.conv_shortcut(input_tensor)
         return self.act2(self.add_layer([reshaped_input, second_layer]))
+
+
+class LinkNet(Layers):
+
+    def __init__(self, classes=1, dropout=0.5, feature_scale=4):
+        super(LinkNet, self).__init__()
+
+        self.conv_bn_relu_1 = []
+        for layer in conv_bn_relu(32, 3, stride=1, name="block1_conv1"):
+            self.conv_bn_relu_1.append(self.track_layer(layer))
+
+        self.conv_bn_relu_2 = []
+        for layer in conv_bn_relu(32, 3, stride=1, name="block1_conv2"):
+            self.conv_bn_relu_2.append(self.track_layer(layer))
+        self.maxPool = MaxPooling2D((2, 2), strides=(2, 2), padding="same", name="block1_pool")
+
+        layers = [2, 2, 2, 2, 2]
+        # filters = [64, 128, 256, 512, 512]
+        filters = [64, 128, 256, 512, 32]
+        enc1 = self.track_layers(encoder(m=32, n=filters[0], blocks=layers[0], stride=1, name='encoder1'))
+        enc2 = self.track_layers(encoder(m=filters[0], n=filters[1], blocks=layers[1], stride=2, name='encoder2'))
+        enc3 = self.track_layers(encoder(m=filters[1], n=filters[2], blocks=layers[2], stride=2, name='encoder3'))
+        enc4 = self.track_layers(encoder(m=filters[2], n=filters[3], blocks=layers[3], stride=2, name='encoder4'))
+        enc5 = self.track_layers(encoder(m=filters[3], n=filters[4], blocks=layers[4], stride=2, name='encoder5'))
+
+        self.decoder = self.track_layer(LinkNetDecoder(enc1, enc2, enc3, enc4, enc5, filters, feature_scale))
+        self.dropout = tfkeras.layers.SpatialDropout2D(dropout)
+        self.conv1 = Conv2D(filters=classes, kernel_size=(1, 1), padding='same', name='prediction')
+        self.act = Activation('sigmoid', name='mask')
+
+    def track_layers(self, layers):
+        return [self.track_layer(layer) for layer in layers]
+
+    def call(self, inputs):
+        x = inputs
+        for layer in self.conv_bn_relu_1:
+            x = layer(x)
+
+        conv1 = x
+        self.decoder.set_conv1(conv1)
+
+        for layer in self.conv_bn_relu_2:
+            x = layer(x)
+
+        x = self.maxPool(x)
+        x = self.decoder(x)
+        x = self.dropout(x)
+        x = self.conv1(x)
+        x = self.act(x)
+        return x

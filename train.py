@@ -28,6 +28,9 @@ from tf_plus import learning_phase, batchnorm_learning_phase
 from tf_nets.losses import add_classification_losses
 from brook.tfutil import hist_summaries_train, get_collection_intersection, get_collection_intersection_summary, log_scalars, sess_run_dict
 from brook.tfutil import summarize_weights, summarize_opt, tf_assert_all_init, tf_get_uninitialized_variables, add_grad_summaries
+from sklearn.model_selection._split import KFold
+
+from spacenet import *
 
 def make_parser():
     parser = argparse.ArgumentParser()
@@ -38,7 +41,7 @@ def make_parser():
     parser.add_argument('--init_weights_h5', type=str, required=False)
 
     # model architecture
-    parser.add_argument('--arch', type=str, default='fc', choices=('fc', 'fc_cust', 'lenet', 'allcnn',
+    parser.add_argument('--arch', type=str, default='fc', choices=('densenet', 'fc', 'fc_cust', 'lenet', 'allcnn',
         'resnet', 'vgg'), help='network architecture')
     parser.add_argument('--num_layers', type=int, default=3, help='number of layers for cifar fc')
 
@@ -75,6 +78,11 @@ def make_parser():
     parser.add_argument('--lr_special', type=float, default=.1, help='learning rate for specified layers')
     parser.add_argument('--mom_special', type=float, default=.9, help='momentum for specified layers')
 
+    parser.add_argument('--data_dirs', nargs='+')
+    parser.add_argument('--wdata_dir', type=str)
+    parser.add_argument('--crop_size', type=int)
+
+
     return parser
 
 def read_input_data(filename):
@@ -88,8 +96,8 @@ def read_input_data(filename):
 
 def init_model(model, args):
     img_size = tuple([None] + [int(dim) for dim in args.input_dim.split(',')])
-    input_images = tf.placeholder(dtype='float32', shape=img_size)
-    input_labels = tf.placeholder(dtype='int64', shape=(None,))
+    input_images = tf.placeholder(dtype='float32', shape=(None, args.crop_size, args.crop_size, 12))
+    input_labels = tf.placeholder(dtype='int64', shape=(None, args.crop_size, args.crop_size, 1))
     model.a('input_images', input_images)
     model.a('input_labels', input_labels)
     model.a('logits', model(input_images)) # logits is y_pred
@@ -185,32 +193,39 @@ def flatten_all(tensors):
     return np.concatenate([tensor.eval().flatten() for tensor in tensors])
 
 # eval on whole train/test set occasionally, for tuning purposes
-def eval_on_entire_dataset(sess, model, input_x, input_y, dim_sum, batch_size, tb_prefix, tb_writer, iterations):
+# def eval_on_entire_dataset(sess, model, input_x, input_y, dim_sum, batch_size, tb_prefix, tb_writer, iterations):
+def eval_on_entire_dataset(sess, model, input_y_shape, generator, dim_sum, batch_size, tb_prefix, tb_writer, iterations):
     grad_sums = np.zeros(dim_sum)
-    num_batches = int(input_y.shape[0] / batch_size)
+    num_batches = int(input_y_shape[0] / batch_size)
     total_acc = 0
     total_loss = 0
     total_loss_no_reg = 0 # loss without counting l2 penalty
 
+    num_batches = 9 # temp
     for i in range(num_batches):
         # slice indices (should be large)
-        s_start = batch_size * i
-        s_end = s_start + batch_size
+        # s_start = batch_size * i
+        # s_end = s_start + batch_size
 
         fetch_dict = {
                 'accuracy': model.accuracy,
                 'loss': model.loss,
-                'loss_no_reg': model.loss_cross_ent}
+                'loss_no_reg': model.loss_cross_ent,
+                'labels': model.labels_flat,
+                'logits': model.logits_flat}
 
         result_dict = sess_run_dict(sess, fetch_dict, feed_dict={
-            model.input_images: input_x[s_start:s_end],
-            model.input_labels: input_y[s_start:s_end],
+            model.input_images: generator[i][0],
+            model.input_labels: generator[i][1],
             learning_phase(): 0,
             batchnorm_learning_phase(): 1}) # do not use nor update moving averages
 
         total_acc += result_dict['accuracy']
         total_loss += result_dict['loss']
         total_loss_no_reg += result_dict['loss_no_reg']
+
+        # print(result_dict['labels'].shape, result_dict['labels'])
+        # print(result_dict['logits'].shape, result_dict['logits'])
 
     acc = total_acc / num_batches
     loss = total_loss / num_batches
@@ -228,9 +243,12 @@ def eval_on_entire_dataset(sess, model, input_x, input_y, dim_sum, batch_size, t
 
 #################
 
-def train_and_eval(sess, model, train_x, train_y, test_x, test_y, tb_writer, dsets, args):
+# def train_and_eval(sess, model, train_x, train_y, test_x, test_y, tb_writer, dsets, args):
+def train_and_eval(sess, model, train_y_shape, train_generator, val_generator, tb_writer, dsets, args):
     # constants
-    num_batches = int(train_y.shape[0] / args.train_batch_size)
+    # num_batches = int(train_y_shape[0] / args.train_batch_size)
+    num_batches = 9
+
     print('Training batch size {}, number of iterations: {} per epoch, {} total'.format(
         args.train_batch_size, num_batches, args.num_epochs*num_batches))
     dim_sum = sum([tf.size(var).eval() for var in tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)])
@@ -244,7 +262,7 @@ def train_and_eval(sess, model, train_x, train_y, test_x, test_y, tb_writer, dse
 
     # initializations
     tb_summaries = tf.summary.merge(tf.get_collection('tb_train_step'))
-    shuffled_indices = np.arange(train_y.shape[0]) # for no shuffling
+    shuffled_indices = np.arange(train_y_shape[0])  # for no shuffling
     iterations = 0
     chunks_written = 0 # for args.save_every batches
     timerstart = time.time()
@@ -253,7 +271,7 @@ def train_and_eval(sess, model, train_x, train_y, test_x, test_y, tb_writer, dse
         # print('-' * 100)
         # print('epoch {}  current lr {:.3g}'.format(epoch, curr_lr))
         if not args.no_shuffle:
-            shuffled_indices = np.random.permutation(train_y.shape[0]) # for shuffled mini-batches
+            shuffled_indices = np.random.permutation(train_y_shape[0])  # for shuffled mini-batches
 
         if epoch == decay_epochs[decay_count]:
             curr_lr *= 0.1
@@ -268,11 +286,11 @@ def train_and_eval(sess, model, train_x, train_y, test_x, test_y, tb_writer, dse
             # less frequent, larger evals
             if iterations % args.eval_every == 0:
                 # eval on entire train set
-                cur_train_acc, cur_train_loss = eval_on_entire_dataset(sess, model, train_x, train_y,
+                cur_train_acc, cur_train_loss = eval_on_entire_dataset(sess, model, train_y_shape, train_generator,
                         dim_sum, args.large_batch_size, 'eval_train', tb_writer, iterations)
 
                 # eval on entire test/val set
-                cur_test_acc, cur_test_loss = eval_on_entire_dataset(sess, model, test_x, test_y,
+                cur_test_acc, cur_test_loss = eval_on_entire_dataset(sess, model, train_y_shape, val_generator,
                         dim_sum, args.test_batch_size, 'eval_test', tb_writer, iterations)
 
             # print status update
@@ -282,7 +300,10 @@ def train_and_eval(sess, model, train_x, train_y, test_x, test_y, tb_writer, dse
                     cur_train_acc, cur_test_acc, cur_train_loss, cur_test_loss, time.time() - timerstart))
 
             # current slice for input data
-            batch_indices = shuffled_indices[args.train_batch_size * i : args.train_batch_size * (i + 1)]
+            # batch_indices = shuffled_indices[args.train_batch_size * i : args.train_batch_size * (i + 1)]
+
+            # Generate batch of training data according to current slice:
+            train_x_single_b, train_y_single_b = train_generator[i]
 
             # training
             # fetch_dict = {'accuracy': model.accuracy, 'loss': model.loss} # no longer used
@@ -301,8 +322,8 @@ def train_and_eval(sess, model, train_x, train_y, test_x, test_y, tb_writer, dse
                 fetch_dict['gradients'] = model.grads_to_compute
 
             result_train = sess_run_dict(sess, fetch_dict, feed_dict={
-                model.input_images: train_x[batch_indices],
-                model.input_labels: train_y[batch_indices],
+                model.input_images: train_x_single_b,
+                model.input_labels: train_y_single_b,
                 model.input_lr: curr_lr,
                 learning_phase(): 1,
                 batchnorm_learning_phase(): 1})
@@ -321,14 +342,18 @@ def train_and_eval(sess, model, train_x, train_y, test_x, test_y, tb_writer, dse
     if args.save_weights:
         dsets['all_weights'][chunks_written] = flatten_all(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES))
 
+    # Save model ?
+    saver = tf.train.Saver()
+    saver.save(sess, args.output_dir + '\\model')
+
     # save final evals
     if iterations % args.eval_every == 0:
         # on entire train set
-        cur_train_acc, cur_train_loss = eval_on_entire_dataset(sess, model, train_x, train_y,
+        cur_train_acc, cur_train_loss = eval_on_entire_dataset(sess, model, train_y_shape, train_generator,
             dim_sum, args.large_batch_size, 'eval_train', tb_writer, iterations)
 
         # on entire test/val set
-        cur_test_acc, cur_test_loss = eval_on_entire_dataset(sess, model, test_x, test_y,
+        cur_test_acc, cur_test_loss = eval_on_entire_dataset(sess, model, train_y_shape, val_generator,
             dim_sum, args.test_batch_size, 'eval_test', tb_writer, iterations)
 
     # print last status update
@@ -350,6 +375,43 @@ def main():
     train_x, train_y = read_input_data(args.train_h5)
     test_x, test_y = read_input_data(args.test_h5) # used as val
 
+    # SpaceNet
+    all_ids = np.array(generate_ids(args.data_dirs, None))
+    kfold = KFold(n_splits=2, shuffle=True)  # args.n_folds
+    splits = [s for s in kfold.split(all_ids)]
+    folds = [int(f) for f in '0'.split(",")]
+    fold = folds[0]
+    train_ind, test_ind = splits[fold]
+    train_ids = all_ids[train_ind]
+    val_ids = all_ids[test_ind]
+
+    train_generator = MULSpacenetDataset(
+        data_dirs=args.data_dirs,
+        wdata_dir=args.wdata_dir,
+        image_ids=train_ids,
+        batch_size=16,
+        crop_shape=(args.crop_size, args.crop_size),
+        seed=777,
+        image_name_template='PS-MS/SN3_roads_train_AOI_5_Khartoum_PS-MS_{id}.tif',
+        masks_dict=get_groundtruth(args.data_dirs)
+    )
+
+    val_generator = MULSpacenetDataset(
+        data_dirs=args.data_dirs,
+        wdata_dir=args.wdata_dir,
+        image_ids=val_ids,
+        batch_size=1,
+        crop_shape=(args.crop_size, args.crop_size),
+        seed=777,
+        image_name_template='PS-MS/SN3_roads_train_AOI_5_Khartoum_PS-MS_{id}.tif',
+        masks_dict=get_groundtruth(args.data_dirs),
+    )
+
+    # x in shape (channels, width, height, num_images) ?
+    x, y = next(train_generator)
+    train_y_shape = y.shape
+
+
     images_scale = np.max(train_x)
     if images_scale > 1:
         print('Normalizing images by a factor of {}'.format(images_scale))
@@ -360,6 +422,7 @@ def main():
         args.test_batch_size = test_y.shape[0]
 
     print('Data shapes:', train_x.shape, train_y.shape, test_x.shape, test_y.shape)
+
     if train_y.shape[0] % args.train_batch_size != 0:
         print("WARNING batch size doesn't divide train set evenly")
     if train_y.shape[0] % args.large_batch_size != 0:
@@ -368,7 +431,9 @@ def main():
         print("WARNING batch size doesn't divide test set evenly")
 
     # build model
-    if args.arch == 'fc':
+    if args.arch == 'densenet':
+        model = network_builders.build_densenet(args)
+    elif args.arch == 'fc':
         model = network_builders.build_network_fc(args)
     elif args.arch == 'fc_cust':
         model = network_builders.build_fc_adjustable(args)
@@ -377,7 +442,7 @@ def main():
     elif args.arch == 'allcnn':
         model = network_builders.build_all_cnn(args)
     elif args.arch == 'resnet':
-        model = network_builders.build_resnet(args)
+        model = network_builders.build_linknet()
     elif args.arch == 'vgg':
         model = network_builders.build_vgg_half(args)
     else:
@@ -386,7 +451,7 @@ def main():
     init_model(model, args)
     define_training(model, args)
 
-    sess = tf.InteractiveSession()
+    sess = tf.InteractiveSession(config=tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True)))
     sess.run(tf.global_variables_initializer())
 
     if args.init_weights_h5:
@@ -420,7 +485,8 @@ def main():
 
     ########## Run main thing ##########
     print('=' * 100)
-    train_and_eval(sess, model, train_x, train_y, test_x, test_y, tb_writer, dsets, args)
+    # train_and_eval(sess, model, train_x, train_y, test_x, test_y, tb_writer, dsets, args)
+    train_and_eval(sess, model, train_y_shape, train_generator, val_generator, tb_writer, dsets, args)
 
     if tb_writer:
         tb_writer.close()
