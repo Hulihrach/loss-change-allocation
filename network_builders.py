@@ -182,12 +182,12 @@ def build_resnet(args):
         ResidualBlock(3, 64, first_stride=(1, 1), name_prefix='3C_', identity=True, resize=args.resize_more, l2=args.l2, l2_shortcut=args.l2),
         # post-blocks
         # GlobalAveragePooling2D(),
-        tf.layers.Conv2DTranspose(1, 3, padding='valid'),
-        tf.layers.Conv2DTranspose(1, 9, padding='valid'),
+        tf.layers.Conv2DTranspose(1, 5, padding='valid'),
+        tf.layers.Conv2DTranspose(1, 11, padding='valid'),
         tf.layers.Conv2DTranspose(1, 15, padding='valid'),
         tf.layers.Conv2DTranspose(1, 21, padding='valid'),
-        tf.layers.Conv2DTranspose(1, 42, padding='valid', name='mask'),
-        Activation('sigmoid')
+        tf.layers.Conv2DTranspose(1, 42, padding='valid', name='probs'),
+        Activation('sigmoid', name='mask')
         # Dense(10, kernel_initializer=he_normal, activation=None, kernel_regularizer=l2reg(args.l2_special), name='fc_last')
     ])
 

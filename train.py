@@ -41,7 +41,7 @@ def make_parser():
     parser.add_argument('--init_weights_h5', type=str, required=False)
 
     # model architecture
-    parser.add_argument('--arch', type=str, default='fc', choices=('densenet', 'fc', 'fc_cust', 'lenet', 'allcnn',
+    parser.add_argument('--arch', type=str, default='fc', choices=('linknet', 'fc', 'fc_cust', 'lenet', 'allcnn',
         'resnet', 'vgg'), help='network architecture')
     parser.add_argument('--num_layers', type=int, default=3, help='number of layers for cifar fc')
 
@@ -431,8 +431,8 @@ def main():
         print("WARNING batch size doesn't divide test set evenly")
 
     # build model
-    if args.arch == 'densenet':
-        model = network_builders.build_densenet(args)
+    if args.arch == 'linknet':
+        model = network_builders.build_linknet()
     elif args.arch == 'fc':
         model = network_builders.build_network_fc(args)
     elif args.arch == 'fc_cust':
@@ -442,7 +442,7 @@ def main():
     elif args.arch == 'allcnn':
         model = network_builders.build_all_cnn(args)
     elif args.arch == 'resnet':
-        model = network_builders.build_linknet()
+        model = network_builders.build_resnet(args)
     elif args.arch == 'vgg':
         model = network_builders.build_vgg_half(args)
     else:

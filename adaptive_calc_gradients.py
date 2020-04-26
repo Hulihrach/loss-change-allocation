@@ -40,7 +40,7 @@ def make_parser():
     parser.add_argument('--train_h5', type=str, required=True)
     parser.add_argument('--test_h5', type=str, required=True)
     parser.add_argument('--input_dim', type=str, default='28,28,1', help='mnist: 28,28,1; cifar: 32,32,3')
-    parser.add_argument('--arch', type=str, default='fc', choices=('densenet', 'fc', 'fc_cust', 'lenet', 'allcnn', 'resnet', 'vgg'), help='network architecture')
+    parser.add_argument('--arch', type=str, default='fc', choices=('linknet', 'fc', 'fc_cust', 'lenet', 'allcnn', 'resnet', 'vgg'), help='network architecture')
     parser.add_argument('--num_layers', type=int, default=3, help='number of layers for cifar fc')
     parser.add_argument('--opt', type=str, default='sgd', choices=('sgd', 'rmsprop', 'adam'))
     parser.add_argument('--l2', type=float, default=0)
@@ -209,8 +209,8 @@ def run_thread(gpu, iters_to_calc, all_weights, shapes, train_y_shape, train_gen
 
     # build model for this process/device
     with tf.device('/device:GPU:{}'.format(gpu)):
-        if args.arch == 'densenet':
-            model = network_builders.build_densenet(args)
+        if args.arch == 'linknet':
+            model = network_builders.build_linknet()
         elif args.arch == 'fc':
             model = network_builders.build_network_fc(args)
         elif args.arch == 'fc_cust':
