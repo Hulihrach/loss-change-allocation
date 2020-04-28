@@ -170,23 +170,40 @@ def build_resnet(args):
         ResidualBlock(3, 16, first_stride=(1, 1), name_prefix='1A_', identity=True, resize=args.resize_more, l2=args.l2, l2_shortcut=args.l2),
         ResidualBlock(3, 16, first_stride=(1, 1), name_prefix='1B_', identity=True, resize=args.resize_more, l2=args.l2, l2_shortcut=args.l2),
         ResidualBlock(3, 16, first_stride=(1, 1), name_prefix='1C_', identity=True, resize=args.resize_more, l2=args.l2, l2_shortcut=args.l2),
+
         # set 2
         ResidualBlock(3, 32, first_stride=(2, 2), name_prefix='2A_', identity=False, resize=args.resize_less, l2=args.l2, l2_shortcut=args.l2),
         ResidualBlock(3, 32, first_stride=(1, 1), name_prefix='2B_', identity=True, resize=args.resize_less, l2=args.l2, l2_shortcut=args.l2),
         ResidualBlock(3, 32, first_stride=(1, 1), name_prefix='2C_', identity=True, resize=args.resize_less, l2=args.l2, l2_shortcut=args.l2),
 
-        tf.layers.Conv2DTranspose(1, 15, padding='valid'),
+        tf.layers.Conv2DTranspose(16, 2, strides=(2, 2)),
+
+        # tf.layers.Conv2DTranspose(1, 15, padding='valid'),
+
         # set 3
         ResidualBlock(3, 64, first_stride=(2, 2), name_prefix='3A_', identity=False, resize=args.resize_less, l2=args.l2, l2_shortcut=args.l2),
         ResidualBlock(3, 64, first_stride=(1, 1), name_prefix='3B_', identity=True, resize=args.resize_more, l2=args.l2, l2_shortcut=args.l2),
         ResidualBlock(3, 64, first_stride=(1, 1), name_prefix='3C_', identity=True, resize=args.resize_more, l2=args.l2, l2_shortcut=args.l2),
         # post-blocks
         # GlobalAveragePooling2D(),
-        tf.layers.Conv2DTranspose(1, 5, padding='valid'),
-        tf.layers.Conv2DTranspose(1, 11, padding='valid'),
-        tf.layers.Conv2DTranspose(1, 15, padding='valid'),
-        tf.layers.Conv2DTranspose(1, 21, padding='valid'),
-        tf.layers.Conv2DTranspose(1, 42, padding='valid', name='probs'),
+
+        tf.layers.Conv2DTranspose(16, 1, strides=(2, 2)),
+
+        ResidualBlock(3, 64, first_stride=(2, 2), name_prefix='4A_', identity=False, resize=args.resize_less, l2=args.l2, l2_shortcut=args.l2),
+        ResidualBlock(3, 64, first_stride=(1, 1), name_prefix='4B_', identity=True, resize=args.resize_more, l2=args.l2, l2_shortcut=args.l2),
+        ResidualBlock(3, 64, first_stride=(1, 1), name_prefix='4C_', identity=True, resize=args.resize_more, l2=args.l2, l2_shortcut=args.l2),
+
+        # tf.layers.Conv2DTranspose(32, 1, strides=(2, 2)),
+        tf.layers.Conv2DTranspose(16, 1, strides=(2, 2)),
+        tf.layers.Conv2DTranspose(8, 1, strides=(1, 1)),
+        tf.layers.Conv2DTranspose(1, 1, strides=(1, 1)),
+
+        # tf.layers.Conv2DTranspose(1, 5, padding='valid'),
+        # tf.layers.Conv2DTranspose(1, 11, padding='valid'),
+        # tf.layers.Conv2DTranspose(1, 15, padding='valid'),
+        # tf.layers.Conv2DTranspose(1, 21, padding='valid'),
+        # tf.layers.Conv2DTranspose(1, 42, padding='valid', name='probs'),
+
         Activation('sigmoid', name='mask')
         # Dense(10, kernel_initializer=he_normal, activation=None, kernel_regularizer=l2reg(args.l2_special), name='fc_last')
     ])
