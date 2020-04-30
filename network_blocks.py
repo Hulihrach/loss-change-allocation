@@ -123,58 +123,65 @@ class LinkNetDecoder(Layers):
         # for layer in self.enc1:
         #     enc1 = layer(enc1)
 
-        enc2 = enc1
-        for layer in self.enc2:
-            enc2 = layer(enc2)
+        enc2 = prop_layer(self.enc2, enc1)
+        # for layer in self.enc2:
+        #     enc2 = layer(enc2)
 
-        enc3 = enc2
-        for layer in self.enc3:
-            enc3 = layer(enc3)
+        enc3 = prop_layer(self.enc3, enc2)
+        # for layer in self.enc3:
+        #     enc3 = layer(enc3)
 
-        enc4 = enc3
-        for layer in self.enc4:
-            enc4 = layer(enc4)
+        enc4 = prop_layer(self.enc4, enc3)
+        # for layer in self.enc4:
+        #     enc4 = layer(enc4)
 
-        enc5 = enc4
-        for layer in self.enc5:
-            enc5 = layer(enc5)
+        enc5 = prop_layer(self.enc5, enc4)
+        # for layer in self.enc5:
+        #     enc5 = layer(enc5)
 
-        dec5 = enc5
-        for layer in self.decoder5:
-            dec5 = layer(dec5)
+        dec5 = prop_layer(self.decoder5, enc5)
+        # for layer in self.decoder5:
+        #     dec5 = layer(dec5)
 
         dec5 = self.add1([dec5, enc4])
 
-        dec4 = dec5
-        for layer in self.decoder4:
-            dec4 = layer(dec4)
+        dec4 = prop_layer(self.decoder4, dec5)
+        # dec4 = dec5
+        # for layer in self.decoder4:
+        #     dec4 = layer(dec4)
         dec4 = self.add2([dec4, enc3])
 
-        dec3 = dec4
-        for layer in self.decoder3:
-            dec3 = layer(dec3)
+        dec3 = prop_layer(self.decoder3, dec4)
+        # dec3 = dec4
+        # for layer in self.decoder3:
+        #     dec3 = layer(dec3)
         dec3 = self.add1([dec3, enc2])
 
-        dec2 = dec3
-        for layer in self.decoder2:
-            dec2 = layer(dec2)
+        dec2 = prop_layer(self.decoder2, dec3)
+        # dec2 = dec3
+        # for layer in self.decoder2:
+        #     dec2 = layer(dec2)
         dec2 = self.add1([dec2, enc1])
 
-        dec1 = dec2
-        for layer in self.decoder1:
-            dec1 = layer(dec1)
+        dec1 = prop_layer(self.decoder1, dec2)
+        # dec1 = dec2
+        # for layer in self.decoder1:
+        #     dec1 = layer(dec1)
 
         if self.skipFirst:
             x = self.concat([self.conv1, dec1])
-            for layer in self.conv_bn_relu_1:
-                x = layer(x)
-            for layer in self.conv_bn_relu_2:
-                x = layer(x)
+            x = prop_layer(self.conv_bn_relu_1, x)
+            # for layer in self.conv_bn_relu_1:
+            #     x = layer(x)
+            x = prop_layer(self.conv_bn_relu_2, x)
+            # for layer in self.conv_bn_relu_2:
+            #     x = layer(x)
 
         else:
             x = dec1
-            for layer in self.conv_bn_relu_3:
-                x = layer(x)
+            x = prop_layer(self.conv_bn_relu_3, x)
+            # for layer in self.conv_bn_relu_3:
+            #     x = layer(x)
 
         return x
 
@@ -187,7 +194,7 @@ class ResidualBlockLinkNet(Layers):
         if downsample is None:
             self.shortcut = None
         else:
-            self.shortcut = downsample
+            self.shortcut = self.track_layers(downsample)
 
         self.conv_bn_relu = self.track_layers(conv_bn_relu(n_filters, kernel_size=3, stride=stride, name=name + '/cvbnrelu'))
         self.conv1 = self.track_layer(Conv2D(n_filters, (3, 3), name=name + '_conv2', padding='same'))
