@@ -26,7 +26,7 @@ def add_classification_losses(model, input_labels, l2=0):
         model.a('prob', model.logits)
         # model.a('sigm_crossentropy', tf.losses.sigmoid_cross_entropy(input_labels, model.logits))
         # model.a('cross_ent', tf.nn.sparse_softmax_cross_entropy_with_logits(logits=model.logits, labels=input_labels, name='cross_ent'))
-        model.a('cross_ent', tf.nn.sigmoid_cross_entropy_with_logits(labels=labels_flat, logits=logits_flat, name='cross_ent'))
+        model.a('cross_ent', tf.keras.backend.binary_crossentropy(target=labels_flat, output=logits_flat))
         model.a('loss_cross_ent', tf.reduce_mean(model.cross_ent, name='loss_cross_ent'), trackable=True)
         model.a('class_prediction', tf.argmax(model.prob, 1))
 
