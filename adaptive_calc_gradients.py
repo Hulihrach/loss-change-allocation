@@ -437,7 +437,7 @@ def main():
             maxshape=(None, dim_sum), dtype='f4', compression='gzip')
 
         if args.num_gpus > 1:
-            ret = pool.apply_async(run_thread, (gpu, iters_to_calc[gpu], all_weights, shapes, input_data, dim_sum,
+            ret = pool.apply_async(run_thread, (gpu, iters_to_calc[gpu], all_weights, shapes, train_y_shape, train_generator, val_generator, dim_sum,
                     args, dsets, hf_grads))
             results.append(ret)
         else:
