@@ -91,8 +91,9 @@ def read_input_data(filename):
 
 def init_model(model, args):
     img_size = tuple([None] + [int(dim) for dim in args.input_dim.split(',')])
-    input_images = tf.placeholder(dtype='float32', shape=(None, args.crop_size, args.crop_size, 12))
-    input_labels = tf.placeholder(dtype='int64', shape=(None, args.crop_size, args.crop_size, 1))
+    # input_images = tf.placeholder(dtype='float32', shape=(None, args.crop_size, args.crop_size, 12))
+    input_images = tf.placeholder(dtype='float32', shape=img_size)
+    input_labels = tf.placeholder(dtype='int64', shape=(None, ))
     model.a('input_images', input_images)
     model.a('input_labels', input_labels)
     model.a('logits', model(input_images)) # logits is y_pred
@@ -188,29 +189,29 @@ def flatten_all(tensors):
     return np.concatenate([tensor.eval().flatten() for tensor in tensors])
 
 # eval on whole train/test set occasionally, for tuning purposes
-# def eval_on_entire_dataset(sess, model, input_x, input_y, dim_sum, batch_size, tb_prefix, tb_writer, iterations):
-def eval_on_entire_dataset(sess, model, input_y_shape, generator, dim_sum, batch_size, tb_prefix, tb_writer, iterations):
+def eval_on_entire_dataset(sess, model, input_x, input_y, dim_sum, batch_size, tb_prefix, tb_writer, iterations):
+# def eval_on_entire_dataset(sess, model, input_y_shape, generator, dim_sum, batch_size, tb_prefix, tb_writer, iterations):
     grad_sums = np.zeros(dim_sum)
-    num_batches = int(input_y_shape[0] / batch_size)
+    num_batches = int(input_y.shape[0] / batch_size)
     total_acc = 0
     total_loss = 0
     total_loss_no_reg = 0 # loss without counting l2 penalty
 
     for i in range(num_batches):
         # slice indices (should be large)
-        # s_start = batch_size * i
-        # s_end = s_start + batch_size
+        s_start = batch_size * i
+        s_end = s_start + batch_size
 
         fetch_dict = {
                 'accuracy': model.accuracy,
                 'loss': model.loss,
-                'loss_no_reg': model.loss_cross_ent,
-                'labels': model.labels_flat,
-                'logits': model.logits_flat}
+                'loss_no_reg': model.loss_cross_ent}
+                # 'labels': model.labels_flat,
+                # 'logits': model.logits_flat}
 
         result_dict = sess_run_dict(sess, fetch_dict, feed_dict={
-            model.input_images: generator[i][0],
-            model.input_labels: generator[i][1],
+            model.input_images: input_x[s_start:s_end],
+            model.input_labels: input_y[s_start:s_end],
             learning_phase(): 0,
             batchnorm_learning_phase(): 1}) # do not use nor update moving averages
 
@@ -237,11 +238,11 @@ def eval_on_entire_dataset(sess, model, input_y_shape, generator, dim_sum, batch
 
 #################
 
-# def train_and_eval(sess, model, train_x, train_y, test_x, test_y, tb_writer, dsets, args):
-def train_and_eval(sess, model, train_y_shape, train_generator, val_generator, tb_writer, dsets, args):
+def train_and_eval(sess, model, train_x, train_y, test_x, test_y, tb_writer, dsets, args):
+# def train_and_eval(sess, model, train_y_shape, train_generator, val_generator, tb_writer, dsets, args):
     # constants
-    num_batches = int(train_y_shape[0] / args.train_batch_size)
-
+    # num_batches = int(train_y_shape[0] / args.train_batch_size)
+    num_batches = int(train_y.shape[0] / args.train_batch_size)
     print('Training batch size {}, number of iterations: {} per epoch, {} total'.format(
         args.train_batch_size, num_batches, args.num_epochs*num_batches))
     dim_sum = sum([tf.size(var).eval() for var in tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)])
@@ -255,7 +256,7 @@ def train_and_eval(sess, model, train_y_shape, train_generator, val_generator, t
 
     # initializations
     tb_summaries = tf.summary.merge(tf.get_collection('tb_train_step'))
-    shuffled_indices = np.arange(train_y_shape[0])  # for no shuffling
+    shuffled_indices = np.arange(train_y.shape[0])  # for no shuffling
     iterations = 0
     chunks_written = 0 # for args.save_every batches
     timerstart = time.time()
@@ -264,7 +265,7 @@ def train_and_eval(sess, model, train_y_shape, train_generator, val_generator, t
         # print('-' * 100)
         # print('epoch {}  current lr {:.3g}'.format(epoch, curr_lr))
         if not args.no_shuffle:
-            shuffled_indices = np.random.permutation(train_y_shape[0])  # for shuffled mini-batches
+            shuffled_indices = np.random.permutation(train_y.shape[0])  # for shuffled mini-batches
 
         if epoch == decay_epochs[decay_count]:
             curr_lr *= 0.1
@@ -279,11 +280,13 @@ def train_and_eval(sess, model, train_y_shape, train_generator, val_generator, t
             # less frequent, larger evals
             if iterations % args.eval_every == 0:
                 # eval on entire train set
-                cur_train_acc, cur_train_loss = eval_on_entire_dataset(sess, model, train_y_shape, train_generator,
+                # cur_train_acc, cur_train_loss = eval_on_entire_dataset(sess, model, train_y_shape, train_generator,
+                cur_train_acc, cur_train_loss = eval_on_entire_dataset(sess, model, train_x, train_y,
                         dim_sum, args.large_batch_size, 'eval_train', tb_writer, iterations)
 
                 # eval on entire test/val set
-                cur_test_acc, cur_test_loss = eval_on_entire_dataset(sess, model, train_y_shape, val_generator,
+                # cur_test_acc, cur_test_loss = eval_on_entire_dataset(sess, model, train_y_shape, val_generator,
+                cur_test_acc, cur_test_loss = eval_on_entire_dataset(sess, model, test_x, test_y,
                         dim_sum, args.test_batch_size, 'eval_test', tb_writer, iterations)
 
             # print status update
@@ -293,10 +296,10 @@ def train_and_eval(sess, model, train_y_shape, train_generator, val_generator, t
                     cur_train_acc, cur_test_acc, cur_train_loss, cur_test_loss, curr_lr, time.time() - timerstart))
 
             # current slice for input data
-            # batch_indices = shuffled_indices[args.train_batch_size * i : args.train_batch_size * (i + 1)]
+            batch_indices = shuffled_indices[args.train_batch_size * i : args.train_batch_size * (i + 1)]
 
             # Generate batch of training data according to current slice:
-            train_x_single_b, train_y_single_b = train_generator[i]
+            # train_x_single_b, train_y_single_b = train_generator[i]
 
             # training
             # fetch_dict = {'accuracy': model.accuracy, 'loss': model.loss} # no longer used
@@ -315,8 +318,8 @@ def train_and_eval(sess, model, train_y_shape, train_generator, val_generator, t
                 fetch_dict['gradients'] = model.grads_to_compute
 
             result_train = sess_run_dict(sess, fetch_dict, feed_dict={
-                model.input_images: train_x_single_b,
-                model.input_labels: train_y_single_b,
+                model.input_images: train_x[batch_indices],
+                model.input_labels: train_y[batch_indices],
                 model.input_lr: curr_lr,
                 learning_phase(): 1,
                 batchnorm_learning_phase(): 1})
@@ -342,11 +345,13 @@ def train_and_eval(sess, model, train_y_shape, train_generator, val_generator, t
     # save final evals
     if iterations % args.eval_every == 0:
         # on entire train set
-        cur_train_acc, cur_train_loss = eval_on_entire_dataset(sess, model, train_y_shape, train_generator,
+        # cur_train_acc, cur_train_loss = eval_on_entire_dataset(sess, model, train_y_shape, train_generator,
+        cur_train_acc, cur_train_loss = eval_on_entire_dataset(sess, model, train_x, train_y,
             dim_sum, args.large_batch_size, 'eval_train', tb_writer, iterations)
 
         # on entire test/val set
-        cur_test_acc, cur_test_loss = eval_on_entire_dataset(sess, model, train_y_shape, val_generator,
+        # cur_test_acc, cur_test_loss = eval_on_entire_dataset(sess, model, train_y_shape, val_generator,
+        cur_test_acc, cur_test_loss = eval_on_entire_dataset(sess, model, test_x, test_y,
             dim_sum, args.test_batch_size, 'eval_test', tb_writer, iterations)
 
     # print last status update
@@ -403,11 +408,11 @@ def main():
     )
 
     # train_x in shape (batch_size, width, height, channels) = (train_batch_size, crop_size, crop_size, 12)
-    train_x, train_y = next(train_generator)
-    train_generator.reset()
-    test_x, test_y = next(val_generator)
-    val_generator.reset()
-    train_y_shape = train_y.shape
+    # train_x, train_y = next(train_generator)
+    # train_generator.reset()
+    # test_x, test_y = next(val_generator)
+    # val_generator.reset()
+    # train_y_shape = train_y.shape
 
 
     images_scale = np.max(train_x)
@@ -484,8 +489,8 @@ def main():
 
     ########## Run main thing ##########
     print('=' * 100)
-    # train_and_eval(sess, model, train_x, train_y, test_x, test_y, tb_writer, dsets, args)
-    train_and_eval(sess, model, train_y_shape, train_generator, val_generator, tb_writer, dsets, args)
+    train_and_eval(sess, model, train_x, train_y, test_x, test_y, tb_writer, dsets, args)
+    # train_and_eval(sess, model, train_y_shape, train_generator, val_generator, tb_writer, dsets, args)
 
     if tb_writer:
         tb_writer.close()

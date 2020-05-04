@@ -12,7 +12,7 @@ def conv_bn_relu(num_channel, kernel_size, stride, name, padding='same', activat
                strides=stride, padding=padding,
                kernel_initializer="he_normal",
                name=name + "_conv"),
-        BatchNormalization(name=name + '_bn'),
+        # BatchNormalization(name=name + '_bn'),
         Activation(activation)  # , name=name + '_relu'
     ]
 
@@ -25,7 +25,7 @@ def deconv_bn_relu(num_channels, kernel_size, name, transposed_conv, activation=
         layers.append(tf.keras.layers.UpSampling2D())
         layers.append(Conv2D(num_channels, kernel_size=(kernel_size, kernel_size), kernel_initializer="he_normal",
                              padding='same'))
-    layers.append(BatchNormalization(name=name + '_bn'))
+    # layers.append(BatchNormalization(name=name + '_bn'))
     layers.append(Activation(activation))
     return layers
 
@@ -35,7 +35,7 @@ def encoder(m, n, blocks, stride, name='encoder'):
     if stride != 1 or m != n:
         downsample = [
             Conv2D(n, (1, 1), strides=(stride, stride), name=name + '_conv_downsample'),
-            BatchNormalization(name=name + '_batchnorm_downsample')
+            # BatchNormalization(name=name + '_batchnorm_downsample')
         ]
 
     layers = [ResidualBlockLinkNet(n, stride, downsample, name=name + '/residualBlock0')]
@@ -155,13 +155,13 @@ class LinkNetDecoder(Layers):
         # dec3 = dec4
         # for layer in self.decoder3:
         #     dec3 = layer(dec3)
-        dec3 = self.add1([dec3, enc2])
+        dec3 = self.add3([dec3, enc2])
 
         dec2 = prop_layer(self.decoder2, dec3)
         # dec2 = dec3
         # for layer in self.decoder2:
         #     dec2 = layer(dec2)
-        dec2 = self.add1([dec2, enc1])
+        dec2 = self.add4([dec2, enc1])
 
         dec1 = prop_layer(self.decoder1, dec2)
         # dec1 = dec2
@@ -198,7 +198,7 @@ class ResidualBlockLinkNet(Layers):
 
         self.conv_bn_relu = self.track_layers(conv_bn_relu(n_filters, kernel_size=3, stride=stride, name=name + '/cvbnrelu'))
         self.conv1 = self.track_layer(Conv2D(n_filters, (3, 3), name=name + '_conv2', padding='same'))
-        self.bn1 = self.track_layer(BatchNormalization(name=name + '_bn'))
+        # self.bn1 = self.track_layer(BatchNormalization(name=name + '_bn'))
         self.add_layer = self.track_layer(tfkeras.layers.Add())
         self.act1 = self.track_layer(Activation('relu'))
 
@@ -219,7 +219,7 @@ class ResidualBlockLinkNet(Layers):
             x = layer(x)
 
         x = self.conv1(x)
-        x = self.bn1(x)
+        # x = self.bn1(x)
         x = self.add_layer([x, shortcut])
         x = self.act1(x)
         return x
