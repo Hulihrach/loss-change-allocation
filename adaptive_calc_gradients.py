@@ -131,8 +131,8 @@ def split_and_shape(one_time_slice, shapes):
 
 def get_gradients_and_eval(sess, model, y_shape, generator, dim_sum, batch_size, get_eval=True, get_grads=True):
     grad_sums = np.zeros(dim_sum)
-    # num_batches = int(y_shape[0] / batch_size)
-    num_batches = 18
+    num_batches = int(y_shape[0] / batch_size)
+    # num_batches = 18
     total_acc = 0
     total_loss = 0
     total_loss_no_reg = 0 # loss without counting l2 penalty
@@ -359,6 +359,7 @@ def main():
         wdata_dir=args.wdata_dir,
         image_ids=train_ids,
         crop_shape=(args.crop_size, args.crop_size),
+        batch_size=args.large_batch_size,
         seed=777,
         image_name_template='PS-MS/SN3_roads_train_AOI_5_Khartoum_PS-MS_{id}.tif',
         masks_dict=get_groundtruth(args.data_dirs)
@@ -368,7 +369,7 @@ def main():
         data_dirs=args.data_dirs,
         wdata_dir=args.wdata_dir,
         image_ids=val_ids,
-        batch_size=1,
+        batch_size=args.test_batch_size,
         crop_shape=(args.crop_size, args.crop_size),
         seed=777,
         image_name_template='PS-MS/SN3_roads_train_AOI_5_Khartoum_PS-MS_{id}.tif',

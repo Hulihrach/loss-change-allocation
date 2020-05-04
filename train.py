@@ -14,20 +14,15 @@ from __future__ import division
 
 from ast import literal_eval
 import tensorflow as tf
-import numpy as np
-import time
 import h5py
 import argparse
 import os
 
 import network_builders
-from tf_plus import BatchNormalization, Lambda, Dropout
-from tf_plus import Conv2D, MaxPooling2D, Flatten, Dense, he_normal, relu, Activation
-from tf_plus import Layers, SequentialNetwork, l2reg, PreprocessingLayers
 from tf_plus import learning_phase, batchnorm_learning_phase
 from tf_nets.losses import add_classification_losses
-from brook.tfutil import hist_summaries_train, get_collection_intersection, get_collection_intersection_summary, log_scalars, sess_run_dict
-from brook.tfutil import summarize_weights, summarize_opt, tf_assert_all_init, tf_get_uninitialized_variables, add_grad_summaries
+from brook.tfutil import sess_run_dict
+from brook.tfutil import summarize_weights
 from sklearn.model_selection._split import KFold
 
 from spacenet import *
@@ -201,7 +196,6 @@ def eval_on_entire_dataset(sess, model, input_y_shape, generator, dim_sum, batch
     total_loss = 0
     total_loss_no_reg = 0 # loss without counting l2 penalty
 
-    num_batches = 9 # temp
     for i in range(num_batches):
         # slice indices (should be large)
         # s_start = batch_size * i
@@ -246,8 +240,7 @@ def eval_on_entire_dataset(sess, model, input_y_shape, generator, dim_sum, batch
 # def train_and_eval(sess, model, train_x, train_y, test_x, test_y, tb_writer, dsets, args):
 def train_and_eval(sess, model, train_y_shape, train_generator, val_generator, tb_writer, dsets, args):
     # constants
-    # num_batches = int(train_y_shape[0] / args.train_batch_size)
-    num_batches = 9
+    num_batches = int(train_y_shape[0] / args.train_batch_size)
 
     print('Training batch size {}, number of iterations: {} per epoch, {} total'.format(
         args.train_batch_size, num_batches, args.num_epochs*num_batches))
@@ -384,32 +377,37 @@ def main():
     train_ind, test_ind = splits[fold]
     train_ids = all_ids[train_ind]
     val_ids = all_ids[test_ind]
+    masks_dict = get_groundtruth(args.data_dirs)
 
+    # Returns normalized to interval [-1, 1]
     train_generator = MULSpacenetDataset(
         data_dirs=args.data_dirs,
         wdata_dir=args.wdata_dir,
         image_ids=train_ids,
-        batch_size=16,
+        batch_size=args.train_batch_size,
         crop_shape=(args.crop_size, args.crop_size),
         seed=777,
         image_name_template='PS-MS/SN3_roads_train_AOI_5_Khartoum_PS-MS_{id}.tif',
-        masks_dict=get_groundtruth(args.data_dirs)
+        masks_dict=masks_dict
     )
 
     val_generator = MULSpacenetDataset(
         data_dirs=args.data_dirs,
         wdata_dir=args.wdata_dir,
         image_ids=val_ids,
-        batch_size=1,
+        batch_size=args.test_batch_size,
         crop_shape=(args.crop_size, args.crop_size),
         seed=777,
         image_name_template='PS-MS/SN3_roads_train_AOI_5_Khartoum_PS-MS_{id}.tif',
-        masks_dict=get_groundtruth(args.data_dirs),
+        masks_dict=masks_dict
     )
 
-    # x in shape (channels, width, height, num_images) ?
-    x, y = next(train_generator)
-    train_y_shape = y.shape
+    # train_x in shape (batch_size, width, height, channels) = (train_batch_size, crop_size, crop_size, 12)
+    train_x, train_y = next(train_generator)
+    train_generator.reset()
+    test_x, test_y = next(val_generator)
+    val_generator.reset()
+    train_y_shape = train_y.shape
 
 
     images_scale = np.max(train_x)
@@ -480,6 +478,7 @@ def main():
 
             # all individual weights at every iteration, where all_weights[i] = weights before iteration i:
             dsets['all_weights'] = hf.create_dataset('all_weights', (total_chunks + 1, dim_sum), dtype='f8', compression='gzip')
+            print(f'all_weights shape: ({total_chunks + 1}, {dim_sum})')
         if args.save_training_grads:
             dsets['training_grads'] = hf.create_dataset('training_grads', (total_chunks, dim_sum), dtype='f8', compression='gzip')
 

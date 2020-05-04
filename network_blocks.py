@@ -94,7 +94,7 @@ class LinkNetDecoder(Layers):
                                                   transposed_conv=transposed_conv))
 
         if skip_first:
-            self.concat = tfkeras.layers.Concatenate()
+            self.concat = self.track_layer(tfkeras.layers.Concatenate())
             self.conv_bn_relu_1 = []
             for layer in conv_bn_relu(32, 3, stride=1, padding='same', name='f2_skip_1'):
                 self.conv_bn_relu_1.append(self.track_layer(layer))

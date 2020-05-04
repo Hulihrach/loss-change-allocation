@@ -269,8 +269,8 @@ class LinkNet(Layers):
 
         self.decoder = self.track_layer(LinkNetDecoder(enc1, enc2, enc3, enc4, enc5, filters, feature_scale))
         self.dropout = tfkeras.layers.SpatialDropout2D(dropout)
-        self.conv1 = Conv2D(filters=classes, kernel_size=(1, 1), padding='same', name='prediction')
-        self.act = Activation('sigmoid', name='mask')
+        self.conv1 = self.track_layer(Conv2D(filters=classes, kernel_size=(1, 1), padding='same', name='prediction'))
+        self.act = self.track_layer(Activation('sigmoid', name='mask'))
 
     def track_layers(self, layers):
         return [self.track_layer(layer) for layer in layers]
