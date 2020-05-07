@@ -249,18 +249,14 @@ class LinkNet(Layers):
     def __init__(self, classes=1, dropout=0.5, feature_scale=4):
         super(LinkNet, self).__init__()
 
-        self.conv_bn_relu_1 = []
-        for layer in conv_bn_relu(32, 3, stride=1, name="block1_conv1"):
-            self.conv_bn_relu_1.append(self.track_layer(layer))
+        self.conv_bn_relu_1 = self.track_layers(conv_bn_relu(32, 3, stride=1, name="block1_conv1"))
+        self.conv_bn_relu_2 = self.track_layers(conv_bn_relu(32, 3, stride=1, name="block1_conv2"))
 
-        self.conv_bn_relu_2 = []
-        for layer in conv_bn_relu(32, 3, stride=1, name="block1_conv2"):
-            self.conv_bn_relu_2.append(self.track_layer(layer))
         self.maxPool = MaxPooling2D((2, 2), strides=(2, 2), padding="same", name="block1_pool")
 
-        layers = [1, 1, 1, 1, 1]
-        # filters = [64, 128, 256, 512, 512]
+        layers = [2, 2, 2, 2, 2]
         filters = [64, 128, 256, 512, 32]
+
         enc1 = self.track_layers(encoder(m=32, n=filters[0], blocks=layers[0], stride=1, name='encoder1'))
         enc2 = self.track_layers(encoder(m=filters[0], n=filters[1], blocks=layers[1], stride=2, name='encoder2'))
         enc3 = self.track_layers(encoder(m=filters[1], n=filters[2], blocks=layers[2], stride=2, name='encoder3'))
@@ -270,11 +266,11 @@ class LinkNet(Layers):
         self.decoder = self.track_layer(LinkNetDecoder(enc1, enc2, enc3, enc4, enc5, filters, feature_scale))
         # self.dropout = tfkeras.layers.SpatialDropout2D(dropout)
         self.conv1 = self.track_layer(Conv2D(filters=classes, kernel_size=(1, 1), padding='same', name='prediction'))
-        self.act = self.track_layer(Activation('relu', name='mask'))
-        self.flat = self.track_layer(Flatten())
-        self.fc1 = self.track_layer(Dense(400, kernel_initializer=he_normal, activation=relu, kernel_regularizer=l2reg(0), name='fc_1'))
+        self.act = self.track_layer(Activation('sigmoid', name='mask'))
+        # self.flat = self.track_layer(Flatten())
+        # self.fc1 = self.track_layer(Dense(400, kernel_initializer=he_normal, activation=relu, kernel_regularizer=l2reg(0), name='fc_1'))
         # Dropout(0.5),
-        self.fc2 = self.track_layer(Dense(10, kernel_initializer=he_normal, activation=None, kernel_regularizer=l2reg(0), name='fc_2'))
+        # self.fc2 = self.track_layer(Dense(10, kernel_initializer=he_normal, activation=None, kernel_regularizer=l2reg(0), name='fc_2'))
 
     def track_layers(self, layers):
         return [self.track_layer(layer) for layer in layers]
@@ -295,7 +291,18 @@ class LinkNet(Layers):
         # x = self.dropout(x)
         x = self.conv1(x)
         x = self.act(x)
-        x = self.flat(x)
-        x = self.fc1(x)
-        x = self.fc2(x)
+        # x = self.flat(x)
+        # x = self.fc1(x)
+        # x = self.fc2(x)
         return x
+
+def build_linknet_2(args):
+    layers = conv_bn_relu(32, 3, stride=1, name="block1_conv1")
+    for layer in conv_bn_relu(32, 3, stride=1, name="block1_conv2"):
+        layers.append(layer)
+    layers.append(MaxPooling2D((2, 2), strides=(2, 2), padding="same", name="block1_pool"))
+    layers.append(Activation('relu'))
+    layers.append(Flatten())
+    layers.append(Dense(400, kernel_initializer=he_normal, activation=relu, kernel_regularizer=l2reg(0), name='fc_1'))
+    layers.append(Dense(10, kernel_initializer=he_normal, activation=None, kernel_regularizer=l2reg(0), name='fc_2'))
+    return SequentialNetwork(layers)

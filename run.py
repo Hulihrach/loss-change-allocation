@@ -1,24 +1,26 @@
 import subprocess
 
-train_args = ['--train_h5 data\\mnist_train.h5',
-              '--test_h5 data\\mnist_val.h5',
-              '--input_dim 28,28,1',
-              '--arch resnet',
+train_args = ['--train_h5 data\\cifar10_train.h5',
+              '--test_h5 data\\cifar10_val.h5',
+              '--input_dim 32,32,3',
+              '--arch linknet',
               '--opt adam',
-              '--lr 0.01',
-              '--decay_schedule 10',
-              '--num_epochs 30',
-              '--large_batch_size 1',
+              '--lr 0.0001',
+              '--decay_schedule 50,150',
+              '--num_epochs 200',
+              '--large_batch_size 6',
               '--print_every 10',
               '--log_every 50',
               '--save_weights',
-              '--output_dir temp_test\\resnet_3',
-              '--train_batch_size 1',
-              '--data_dirs D:\\cvut\\BP\\RoadDetector\\selim_sef-solution\\wdata\\AOI_5_Khartoum',
+              '--output_dir temp_test\\linknet_13',
+              '--train_batch_size 6',
+              '--test_batch_size 2',
+              '--data_dirs D:\\cvut\\BP\\RoadDetector\\selim_sef-solution\\wdata\\AOI_2_Vegas',
               '--wdata_dir D:\\cvut\\BP\\RoadDetector\\selim_sef-solution\\wdata',
-              '--crop_size 128',
-              '--eval_every 10']
+              '--crop_size 256',
+              '--eval_every 10',
+              '--save_every 200']
 train_arg = " ".join(train_args)
-train_cmd = f"python train.py {train_arg}"
+train_cmd = f"python train_spacenet.py {train_arg}"
 
 subprocess.call(train_cmd, shell=True)

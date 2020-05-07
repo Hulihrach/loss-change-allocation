@@ -126,7 +126,7 @@ class MULSpacenetDataset(Iterator):
                 image = np.concatenate([image, ohe_city], axis=-1)
                 image = np.array(image, dtype="float32")
 
-            id = 'AOI_5_Khartoum_' + id
+            id = 'AOI_2_Vegas_' + id
             lines = self.masks_dict[id]
             mask = np.zeros((image.shape[0], image.shape[1], 1))
             # lines in wkt format, pygeoif
@@ -195,7 +195,8 @@ class MULSpacenetDataset(Iterator):
             if self.stretch_and_mean:
                 batch_x = batch_x / 255
             else:
-                batch_x = batch_x / 1024. - 1
+                # batch_x = batch_x / 1024. - 1
+                batch_x = batch_x / 2048.
         return self.transform_batch_x(batch_x), self.transform_batch_y(batch_y)
 
     def transform_batch_x(self, batch_x):
